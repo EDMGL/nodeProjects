@@ -13,7 +13,12 @@ const upload = multer({
   }
 });
 
-app.use(cors());
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: false
+}));
 app.use(express.json({ limit: '10mb' })); // JSON input için
 
 // Health check endpoint
@@ -257,7 +262,7 @@ function extractInfoFromText(text) {
 }
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`🟢 OCR API http://localhost:${PORT} üzerinden çalışıyor`);
   console.log(`📝 Endpoints:`);
   console.log(`   - GET  / (health check)`);
@@ -265,3 +270,6 @@ app.listen(PORT, () => {
   console.log(`   - POST /ocr-multipart (sadece multipart)`);
   console.log(`   - POST /ocr-json (sadece JSON)`);
 });
+
+// Timeout süresini artır
+server.timeout = 120000; // 2 dakika
