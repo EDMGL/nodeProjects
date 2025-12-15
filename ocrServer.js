@@ -3,11 +3,21 @@ const express = require('express');
 const cors = require('cors');
 const OpenAI = require('openai');
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
-
 const app = express();
+
+// OpenAI client'ı lazy initialization (istek geldiğinde oluştur)
+let openai = null;
+function getOpenAIClient() {
+  if (!openai) {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY environment variable tanımlı değil');
+    }
+    openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY
+    });
+  }
+  return openai;
+}
 
 app.use(cors({
   origin: '*',
@@ -44,7 +54,8 @@ app.post('/ocr', async (req, res) => {
     }
 
     // OpenAI'a görsel analiz isteği gönder
-    const response = await openai.chat.completions.create({
+    const client = getOpenAIClient();
+    const response = await client.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
         {
