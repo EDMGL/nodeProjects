@@ -1,70 +1,38 @@
 import os
-import base64
 import json
-import io
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 from openai import OpenAI
-from PIL import Image  # Pillow kütüphanesini ekledik
 from dotenv import load_dotenv
 
 # ---------------- AYARLAR ----------------
-# .env dosyasını yükle
 load_dotenv()
-API_KEY = os.getenv("OPENAI_API_KEY")
+API_KEY = os.getenv("OPENAI_API_KEY") 
 # -----------------------------------------
 
 app = FastAPI()
 client = OpenAI(api_key=API_KEY)
 
-@app.post("/analyze-card")
-async def analyze_card(file: UploadFile = File(...)):
+# Gelen veriyi karşılayacak model
+class CardRequest(BaseModel):
+    base64_string: str  # Frontend'den sadece bu string gelecek
+
+@app.post("/analyze-card-base64")
+async def analyze_card(request: CardRequest):
     try:
-        # 1. Dosya içeriğini raw bytes olarak oku
-        contents = await file.read()
+        # Gelen string'in başında "data:image..." varsa temizleyelim (Opsiyonel güvenlik)
+        # Eğer frontend ham data gönderiyorsa bu satır sorun çıkarmaz.
+        image_data = request.base64_string
+        if "," in image_data:
+            image_data = image_data.split(",")[1]
 
-        # --- GÖRÜNTÜ İŞLEME VE STANDARTLAŞTIRMA (YENİ KISIM) ---
-        try:
-            # Gelen baytları bir görüntü olarak açmayı dene (PNG, JPG fark etmez)
-            image = Image.open(io.BytesIO(contents))
-            
-            # Mobil cihazlar için EXIF döndürme bilgisini düzelt (opsiyonel ama iyidir)
-            try:
-                from PIL import ImageOps
-                image = ImageOps.exif_transpose(image)
-            except:
-                pass # Hata verirse devam et, kritik değil
-
-            # Eğer görüntü RGBA (saydam PNG) ise RGB'ye çevir (JPEG saydamlık desteklemez)
-            if image.mode in ("RGBA", "P"):
-                 image = image.convert("RGB")
-
-            # Görüntüyü bellekte (RAM'de) JPEG formatına dönüştür
-            output_buffer = io.BytesIO()
-            # quality=85 mobil fotoğraflar için iyi bir dengedir, boyutu düşürür, kaliteyi korur.
-            image.save(output_buffer, format="JPEG", quality=85)
-            jpeg_data = output_buffer.getvalue()
-
-            print(f"Görüntü başarıyla JPEG formatına dönüştürüldü: {file.filename}")
-
-        except Exception as img_err:
-            return {"status": "error", "message": f"Dosya bir resim dosyası değil veya bozuk: {str(img_err)}"}
-        
-        # -------------------------------------------------------
-
-        # 2. Dönüştürülmüş JPEG verisini Base64'e çevir
-        base64_image = base64.b64encode(jpeg_data).decode('utf-8')
-        # Artık formatın kesinlikle JPEG olduğundan eminiz
-        mime_type = "image/jpeg" 
-
-        print("OpenAI'a gönderiliyor...")
-
-        # 3. OpenAI GPT-4o mini'ye Özel Promptla Gönder
+        # --- OPENAI İSTEĞİ (KATI OCR MODU) ---
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4o-mini", 
             messages=[
                 {
                     "role": "system", 
-                    "content": "Sen Salesforce için veri yapılandıran uzman bir asistansın."
+                    "content": "Sen bir yapay zeka değilsin. Sen sadece görüntüdeki metni karakter karakter kopyalayan bir OCR motorusun."
                 },
                 {
                     "role": "user",
@@ -72,52 +40,58 @@ async def analyze_card(file: UploadFile = File(...)):
                         {
                             "type": "text", 
                             "text": """
-                            Bu kartvizitteki bilgileri oku ve aşağıdaki JSON formatına kesinlikle uy.
-                            
-                            İstenen JSON Sıralaması ve Formatı:
+                            GÖREV: Kartvizit üzerindeki yazıları oku ve JSON formatına aktar.
+
+                            KESİN KURALLAR (İHLAL ETME):
+                            1. SADECE GÖRDÜĞÜNÜ YAZ: Kartın üzerinde yazmayan hiçbir kelimeyi, şehri veya ünvanı ekleme.
+                            2. TAMAMLAMA YAPMA: "Alikahya" yazıyorsa "Köyü" ekleme. Adres eksikse eksik bırak.
+                            3. DÜZELTME YAPMA: Yazım hatası varsa hatayı da aynen al.
+                            4. TELEFON: Numarayı kartta gördüğün formatta (boşluklu/parantezli) aynen bırak.
+
+                            İstenen JSON:
                             {
                                 "name": "...",
                                 "title": "...",
-                                "tel": "...",
+                                "phone": "...", 
                                 "company": "...",
                                 "email": "...",
-                                "address": "...",
-                                "web": "...",
-                                "description": "..."
+                                "address": "...", 
+                                "web": "..."
                             }
-                            
-                            Eğer bilgi yoksa 'null' yaz. Sadece JSON döndür, markdown kullanma.
+
+                            Not: Eğer bir alan kartta yoksa 'null' değerini ver.
                             """
                         },
                         {
                             "type": "image_url",
                             "image_url": {
-                                "url": f"data:{mime_type};base64,{base64_image}"
+                                # OpenAI'a gönderirken header ekliyoruz
+                                "url": f"data:image/jpeg;base64,{image_data}"
                             },
                         },
                     ],
                 }
             ],
-            temperature=0.0,
+            temperature=0.0, # Yaratıcılık kapalı
         )
-        
-        # 4. Cevabı Temizle ve Döndür
+
+        # Cevabı temizle ve JSON'a çevir
         raw_content = response.choices[0].message.content
         cleaned_content = raw_content.replace("```json", "").replace("```", "").strip()
-        
         json_data = json.loads(cleaned_content)
 
         return {
             "status": "success",
-            "fileName": file.filename,
             "data": json_data
         }
 
     except json.JSONDecodeError:
         return {
             "status": "error", 
-            "message": "AI JSON formatında cevap veremedi.",
+            "message": "AI cevap üretti ama JSON formatı bozuk.",
             "raw_response": raw_content
         }
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        # Loglama için burayı kullanabilirsin
+        print(f"Hata: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
