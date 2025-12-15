@@ -1,9 +1,16 @@
 // ocrServer.js
+require('dotenv').config();
 const express = require('express');
 const multer = require('multer');
 const Tesseract = require('tesseract.js');
 const cors = require('cors');
 const fs = require('fs');
+const OpenAI = require('openai');
+
+// OpenAI client
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY
+});
 
 const app = express();
 const upload = multer({ 
@@ -26,46 +33,37 @@ app.get('/', (req, res) => {
   res.json({ status: 'OK', message: 'OCR API çalışıyor' });
 });
 
-// Ana OCR endpoint - hem multipart hem de JSON kabul eder
+// Ana OCR endpoint - OpenAI GPT-4o-mini ile kartvizit analizi
 app.post('/ocr', async (req, res) => {
   try {
-    let imageBuffer, fileName, shouldDeleteFile = false;
-    let tempImagePath = null;
+    let base64Image, fileName;
 
-    // Content-Type'a göre farklı input'ları handle et
     if (req.headers['content-type'] && req.headers['content-type'].includes('multipart/form-data')) {
-      // Multipart form data için
       if (!req.file) {
         return res.status(400).json({ error: 'No image file uploaded' });
       }
       
-      imageBuffer = fs.readFileSync(req.file.path);
+      const imageBuffer = fs.readFileSync(req.file.path);
+      base64Image = imageBuffer.toString('base64');
       fileName = req.file.originalname || 'image.jpg';
-      tempImagePath = req.file.path;
-      shouldDeleteFile = true;
       
-      console.log('Processing multipart image:', tempImagePath);
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (unlinkErr) {
+        console.log('Could not delete file:', unlinkErr.message);
+      }
+      
+      console.log('Processing multipart image:', fileName);
       
     } else if (req.headers['content-type'] && req.headers['content-type'].includes('application/json')) {
-      // JSON input için
       if (!req.body || !req.body.image) {
         return res.status(400).json({ error: 'No image data in JSON body' });
       }
       
-      try {
-        imageBuffer = Buffer.from(req.body.image, 'base64');
-        fileName = req.body.fileName || 'image.jpg';
-        
-        // Geçici dosya oluştur
-        tempImagePath = `/tmp/${Date.now()}_${fileName}`;
-        fs.writeFileSync(tempImagePath, imageBuffer);
-        shouldDeleteFile = true;
-        
-        console.log('Processing JSON image:', tempImagePath);
-      } catch (bufferErr) {
-        console.error('Buffer conversion error:', bufferErr);
-        return res.status(400).json({ error: 'Invalid base64 image data' });
-      }
+      base64Image = req.body.image;
+      fileName = req.body.fileName || 'image.jpg';
+      
+      console.log('Processing JSON image:', fileName);
       
     } else {
       return res.status(400).json({ 
@@ -73,31 +71,83 @@ app.post('/ocr', async (req, res) => {
       });
     }
 
-    // OCR işlemi
-    const result = await Tesseract.recognize(tempImagePath, 'eng', {
-      logger: m => console.log(m)
-    });
-    
-    const ocrText = result.data.text;
-    console.log('OCR Text:', ocrText);
-
-    // Bilgi çıkarma
-    const extractedInfo = extractInfoFromText(ocrText);
-
-    // Geçici dosyayı sil
-    if (shouldDeleteFile && tempImagePath) {
-      try {
-        fs.unlinkSync(tempImagePath);
-        console.log('Temporary file deleted:', tempImagePath);
-      } catch (unlinkErr) {
-        console.log('Could not delete temporary file:', unlinkErr.message);
-      }
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(500).json({ 
+        error: 'OpenAI API key not configured',
+        details: 'Please set OPENAI_API_KEY environment variable'
+      });
     }
 
-    res.json({
-      full_text: ocrText,
-      ...extractedInfo
+    console.log('OpenAI\'a gönderiliyor...');
+
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: 'Sen Salesforce için veri yapılandıran uzman bir asistansın.'
+        },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: `Bu kartvizitteki bilgileri oku ve aşağıdaki JSON formatına kesinlikle uy.
+                            
+İstenen JSON Sıralaması ve Formatı:
+{
+    "name": "...",
+    "title": "...",
+    "tel": "...",
+    "company": "...",
+    "email": "...",
+    "address": "...",
+    "web": "...",
+    "description": "..."
+}
+
+Eğer bilgi yoksa 'null' yaz. Sadece JSON döndür, markdown kullanma.`
+            },
+            {
+              type: 'image_url',
+              image_url: {
+                url: `data:image/jpeg;base64,${base64Image}`
+              }
+            }
+          ]
+        }
+      ],
+      temperature: 0.0
     });
+
+    let rawContent = response.choices[0].message.content;
+    console.log('OpenAI Raw Response:', rawContent);
+    
+    
+    let cleanedContent = rawContent
+      .replace(/```json\s*/gi, '')
+      .replace(/```\s*/g, '')
+      .trim();
+
+    try {
+      const jsonData = JSON.parse(cleanedContent);
+      
+      console.log('Parsed JSON:', jsonData);
+
+      // Salesforce uyumlu format ile döndür
+      res.json({
+        status: 'success',
+        fileName: fileName,
+        ...jsonData
+      });
+      
+    } catch (parseErr) {
+      console.error('JSON Parse Error:', parseErr);
+      res.status(500).json({
+        error: 'AI JSON formatında cevap veremedi',
+        raw_response: rawContent
+      });
+    }
     
   } catch (err) {
     console.error('OCR Error:', err);
@@ -115,6 +165,58 @@ app.post('/ocr', async (req, res) => {
       error: 'OCR failed', 
       details: err.message,
       stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
+  }
+});
+
+// Tesseract tabanlı OCR endpoint (ücretsiz alternatif)
+app.post('/ocr-tesseract', async (req, res) => {
+  try {
+    let base64Image, fileName;
+
+    if (req.headers['content-type'] && req.headers['content-type'].includes('application/json')) {
+      if (!req.body || !req.body.image) {
+        return res.status(400).json({ error: 'No image data in JSON body' });
+      }
+      base64Image = req.body.image;
+      fileName = req.body.fileName || 'image.jpg';
+    } else {
+      return res.status(400).json({ 
+        error: 'Unsupported content type. Use application/json' 
+      });
+    }
+
+    const imageBuffer = Buffer.from(base64Image, 'base64');
+    const tempPath = `/tmp/${Date.now()}_${fileName}`;
+    fs.writeFileSync(tempPath, imageBuffer);
+
+    console.log('Processing with Tesseract:', tempPath);
+
+    const result = await Tesseract.recognize(tempPath, 'eng', {
+      logger: m => console.log(m)
+    });
+
+    const ocrText = result.data.text;
+    const extractedInfo = extractInfoFromText(ocrText);
+
+    try {
+      fs.unlinkSync(tempPath);
+    } catch (unlinkErr) {
+      console.log('Could not delete file:', unlinkErr.message);
+    }
+
+    res.json({
+      status: 'success',
+      fileName: fileName,
+      full_text: ocrText,
+      ...extractedInfo
+    });
+
+  } catch (err) {
+    console.error('Tesseract OCR Error:', err);
+    res.status(500).json({ 
+      error: 'OCR failed', 
+      details: err.message
     });
   }
 });
@@ -264,11 +366,13 @@ function extractInfoFromText(text) {
 const PORT = process.env.PORT || 3001;
 const server = app.listen(PORT, () => {
   console.log(`🟢 OCR API http://localhost:${PORT} üzerinden çalışıyor`);
+  console.log(`🤖 OpenAI API Key: ${process.env.OPENAI_API_KEY ? 'Configured ✓' : 'NOT CONFIGURED ✗'}`);
   console.log(`📝 Endpoints:`);
   console.log(`   - GET  / (health check)`);
-  console.log(`   - POST /ocr (hem multipart hem JSON)`);
-  console.log(`   - POST /ocr-multipart (sadece multipart)`);
-  console.log(`   - POST /ocr-json (sadece JSON)`);
+  console.log(`   - POST /ocr (OpenAI GPT-4o-mini ile kartvizit analizi)`);
+  console.log(`   - POST /ocr-tesseract (Tesseract.js ile OCR - ücretsiz)`);
+  console.log(`   - POST /ocr-multipart (Tesseract - sadece multipart)`);
+  console.log(`   - POST /ocr-json (Tesseract - sadece JSON)`);
 });
 
 // Timeout süresini artır
