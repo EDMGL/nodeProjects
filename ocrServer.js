@@ -29,7 +29,13 @@ app.use(express.json({ limit: '10mb' }));
 
 // Health check
 app.get('/', (req, res) => {
-  res.json({ status: 'OK', message: 'OCR API çalışıyor' });
+  res.json({ 
+    status: 'OK', 
+    message: 'OCR API çalışıyor',
+    openai_key_exists: !!process.env.OPENAI_API_KEY,
+    openai_key_length: process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.length : 0,
+    env_keys: Object.keys(process.env).filter(k => k.includes('OPENAI') || k.includes('API'))
+  });
 });
 
 // OCR endpoint
