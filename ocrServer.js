@@ -42,16 +42,17 @@ const ContactInfoSchema = {
   type: "object",
   properties: {
     name: { type: "string", description: "Kartvizitteki kişinin tam adı" },
-    title: { type: "string", description: "Ünvan" },
     phone: { type: "string", description: "Telefon numarası" },
     company: { type: "string", description: "Şirket adı" },
     email: { type: "string", description: "E-posta adresi" },
     web: { type: "string", description: "Web sitesi" },
     address: { type: "string", description: "Adresin tamamı. OCR hataları (örn: 'Selküçlü' -> 'Selçuklu') düzeltilmiş temiz hali." },
+    street: { type: "string", description: "Sokak/Cadde/Mahalle bilgisi. Örn: 'Atatürk Cad. No:15' veya 'Bahçelievler Mah. 123. Sok.'" },
+    district: { type: "string", description: "İlçe ismi. Örn: 'Çankaya', 'Selçuklu', 'Kadıköy'" },
     city: { type: "string", description: "Sadece İl (Şehir) ismi. Kartta yazmıyorsa ilçeden türet (Örn: Çankaya -> Ankara)." },
     country: { type: "string", description: "Ülke ismi" }
   },
-  required: ["name", "title", "phone", "company", "email", "web", "address", "city", "country"],
+  required: ["name", "phone", "company", "email", "web", "address", "street", "district", "city", "country"],
   additionalProperties: false
 };
 
@@ -85,7 +86,12 @@ GÖREVLERİN:
    - Örn: 'Istnbul' -> 'İstanbul'
 3. MANTIK YÜRÜT: İlçe belliyse ama İl yazmıyorsa, İli sen doldur.
    - Örn: Adreste sadece 'Kızılay/Çankaya' yazıyorsa, City: 'Ankara' yap.
-4. VERİYİ AYRIŞTIR: Adresi; tam adres, şehir ve ülke olarak ayır.
+4. VERİYİ AYRIŞTIR: Adresi parçalarına ayır:
+   - address: Adresin tamamı (düzeltilmiş hali)
+   - street: Sokak/Cadde/Mahalle bilgisi (Örn: 'Atatürk Cad. No:15')
+   - district: İlçe ismi (Örn: 'Çankaya', 'Selçuklu')
+   - city: İl ismi (Örn: 'Ankara', 'Konya')
+   - country: Ülke ismi
 
 Not: Eğer bir alan kartta yoksa boş string ("") değerini ver.`;
 
