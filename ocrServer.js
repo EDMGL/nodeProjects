@@ -46,8 +46,8 @@ const ContactInfoSchema = {
     company: { type: "string", description: "Şirket adı" },
     email: { type: "string", description: "E-posta adresi" },
     web: { type: "string", description: "Web sitesi" },
-    street: { type: "string", description: "Sokak/Cadde/Mahalle bilgisi. Örn: 'Atatürk Cad. No:15' veya 'Bahçelievler Mah. 123. Sok.'" },
-    district: { type: "string", description: "İlçe ismi. Örn: 'Çankaya', 'Selçuklu', 'Kadıköy'" },
+    street: { type: "string", description: "Sadece Cadde/Sokak bilgisi. Örn: 'Atatürk Cad. No:15' veya '123. Sokak' Maksimum 40 karakter olmalı." },
+    district: { type: "string", description: "İlçe ismi. Örn: 'Çankaya', 'Kadıköy', 'Selçuklu'" },
     city: { type: "string", description: "Sadece İl (Şehir) ismi. Kartta yazmıyorsa ilçeden türet (Örn: Çankaya -> Ankara)." },
     country: { type: "string", description: "Ülke ismi" }
   },
@@ -86,8 +86,8 @@ GÖREVLERİN:
 3. MANTIK YÜRÜT: İlçe belliyse ama İl yazmıyorsa, İli sen doldur.
    - Örn: Adreste sadece 'Kızılay/Çankaya' yazıyorsa, City: 'Ankara' yap.
 4. VERİYİ AYRIŞTIR: Adresi parçalarına ayır:
-   - street: Sokak/Cadde/Mahalle bilgisi (Örn: 'Atatürk Cad. No:15')
-   - district: İlçe ismi (Örn: 'Çankaya', 'Selçuklu')
+   - street: Sadece Cadde/Sokak bilgisi (Örn: 'Atatürk Cad. No:15')
+   - district: İlçe ismi (Örn: 'Çankaya', 'Kadıköy')
    - city: İl ismi (Örn: 'Ankara', 'Konya')
    - country: Ülke ismi
 
