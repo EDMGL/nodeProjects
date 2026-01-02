@@ -5,7 +5,6 @@ const OpenAI = require('openai');
 
 const app = express();
 
-// OpenAI client'ı lazy initialization (istek geldiğinde oluştur)
 let openai = null;
 function getOpenAIClient() {
   if (!openai) {
@@ -38,6 +37,24 @@ app.get('/', (req, res) => {
   });
 });
 
+// ContactInfo JSON Schema (Structured Output için)
+const ContactInfoSchema = {
+  type: "object",
+  properties: {
+    name: { type: "string", description: "Kartvizitteki kişinin tam adı" },
+    title: { type: "string", description: "Ünvan" },
+    phone: { type: "string", description: "Telefon numarası" },
+    company: { type: "string", description: "Şirket adı" },
+    email: { type: "string", description: "E-posta adresi" },
+    web: { type: "string", description: "Web sitesi" },
+    address: { type: "string", description: "Adresin tamamı. OCR hataları (örn: 'Selküçlü' -> 'Selçuklu') düzeltilmiş temiz hali." },
+    city: { type: "string", description: "Sadece İl (Şehir) ismi. Kartta yazmıyorsa ilçeden türet (Örn: Çankaya -> Ankara)." },
+    country: { type: "string", description: "Ülke ismi. Türkiye ise 'Turkey' yaz." }
+  },
+  required: ["name", "title", "phone", "company", "email", "web", "address", "city", "country"],
+  additionalProperties: false
+};
+
 // OCR endpoint
 app.post('/ocr', async (req, res) => {
   try {
@@ -59,40 +76,34 @@ app.post('/ocr', async (req, res) => {
       imageData = imageData.split(',')[1];
     }
 
-    // OpenAI'a görsel analiz isteği gönder
+    const systemPrompt = `Sen Türkiye adres formatları konusunda uzman bir yapay zeka asistanısın.
+
+GÖREVLERİN:
+1. Kartvizitteki metinleri oku.
+2. HATALARI DÜZELT: OCR kaynaklı harf hatalarını Türkiye coğrafyasına göre düzelt.
+   - Örn: 'Selküçlü' -> 'Selçuklu' (Konya olduğunu anla)
+   - Örn: 'Istnbul' -> 'İstanbul'
+3. MANTIK YÜRÜT: İlçe belliyse ama İl yazmıyorsa, İli sen doldur.
+   - Örn: Adreste sadece 'Kızılay/Çankaya' yazıyorsa, City: 'Ankara' yap.
+4. VERİYİ AYRIŞTIR: Adresi; tam adres, şehir ve ülke olarak ayır.
+
+Not: Eğer bir alan kartta yoksa boş string ("") değerini ver.`;
+
+    // OpenAI'a görsel analiz isteği gönder (Structured Output ile)
     const client = getOpenAIClient();
     const response = await client.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
         {
           role: 'system',
-          content: 'Sen bir yapay zeka değilsin. Sen sadece görüntüdeki metni karakter karakter kopyalayan bir OCR motorusun.'
+          content: systemPrompt
         },
         {
           role: 'user',
           content: [
             {
               type: 'text',
-              text: `GÖREV: Kartvizit üzerindeki yazıları oku ve JSON formatına aktar.
-
-KESİN KURALLAR (İHLAL ETME):
-1. SADECE GÖRDÜĞÜNÜ YAZ: Kartın üzerinde yazmayan hiçbir kelimeyi, şehri veya ünvanı ekleme.
-2. TAMAMLAMA YAPMA: "Alikahya" yazıyorsa "Köyü" ekleme. Adres eksikse eksik bırak.
-3. DÜZELTME YAPMA: Yazım hatası varsa hatayı da aynen al.
-4. TELEFON: Numarayı kartta gördüğün formatta (boşluklu/parantezli) aynen bırak.
-
-İstenen JSON:
-{
-    "name": "...",
-    "title": "...",
-    "tel": "...", 
-    "company": "...",
-    "email": "...",
-    "address": "...", 
-    "web": "..."
-}
-
-Not: Eğer bir alan kartta yoksa 'null' değerini ver.`
+              text: 'Bu kartviziti analiz et, hataları düzelt ve ayrıştır.'
             },
             {
               type: 'image_url',
@@ -103,16 +114,23 @@ Not: Eğer bir alan kartta yoksa 'null' değerini ver.`
           ]
         }
       ],
-      temperature: 0.0
+      temperature: 0.0,
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "ContactInfo",
+          strict: true,
+          schema: ContactInfoSchema
+        }
+      }
     });
 
-    // Cevabı temizle ve JSON'a çevir
+    // Structured output ile gelen cevabı parse et
     const rawContent = response.choices[0].message.content;
-    const cleanedContent = rawContent.replace(/```json/g, '').replace(/```/g, '').trim();
     
     let jsonData;
     try {
-      jsonData = JSON.parse(cleanedContent);
+      jsonData = JSON.parse(rawContent);
     } catch (parseError) {
       return res.json({
         status: 'error',
@@ -123,6 +141,7 @@ Not: Eğer bir alan kartta yoksa 'null' değerini ver.`
 
     return res.json({
       status: 'success',
+      fileName: fileName || null,
       data: jsonData
     });
 

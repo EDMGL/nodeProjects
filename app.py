@@ -95,3 +95,7 @@ async def analyze_card(request: CardRequest):
         # Loglama için burayı kullanabilirsin
         print(f"Hata: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+        
