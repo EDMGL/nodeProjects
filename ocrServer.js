@@ -49,7 +49,7 @@ const ContactInfoSchema = {
     web: { type: "string", description: "Web sitesi" },
     address: { type: "string", description: "Adresin tamamı. OCR hataları (örn: 'Selküçlü' -> 'Selçuklu') düzeltilmiş temiz hali." },
     city: { type: "string", description: "Sadece İl (Şehir) ismi. Kartta yazmıyorsa ilçeden türet (Örn: Çankaya -> Ankara)." },
-    country: { type: "string", description: "Ülke ismi. Türkiye ise 'Turkey' yaz." }
+    country: { type: "string", description: "Ülke ismi." }
   },
   required: ["name", "title", "phone", "company", "email", "web", "address", "city", "country"],
   additionalProperties: false
