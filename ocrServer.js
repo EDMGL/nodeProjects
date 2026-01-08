@@ -42,7 +42,8 @@ const ContactInfoSchema = {
   type: "object",
   properties: {
     name: { type: "string", description: "Kartvizitteki kişinin tam adı" },
-    phone: { type: "string", description: "Telefon numarası" },
+    phone: { type: "string", description: "Sabit telefon numarası. Genelde 0212, 0312, 0232 gibi alan kodlarıyla başlar. Kartta birden fazla numara varsa bu sabit hat numarası olmalı." },
+    mobile: { type: "string", description: "Mobil telefon numarası. Genelde 05XX ile başlar. Kartta birden fazla numara varsa bu mobil numara olmalı." },
     company: { type: "string", description: "Şirket adı" },
     email: { type: "string", description: "E-posta adresi" },
     web: { type: "string", description: "Web sitesi" },
@@ -51,7 +52,7 @@ const ContactInfoSchema = {
     city: { type: "string", description: "Sadece İl (Şehir) ismi. Kartta yazmıyorsa ilçeden türet (Örn: Çankaya -> Ankara)." },
     country: { type: "string", description: "Ülke ismi" }
   },
-  required: ["name", "phone", "company", "email", "web", "street", "district", "city", "country"],
+  required: ["name", "phone", "mobile", "company", "email", "web", "street", "district", "city", "country"],
   additionalProperties: false
 };
 
@@ -90,6 +91,15 @@ GÖREVLERİN:
    - district: İlçe ismi (Örn: 'Çankaya', 'Kadıköy')
    - city: İl ismi (Örn: 'Ankara', 'Konya')
    - country: Ülke ismi
+
+TELEFON NUMARALARI İÇİN ÖNEMLİ KURALLAR:
+- phone: SABİT HAT numarası. Genelde 0212, 0312, 0232, 0216 gibi şehir alan kodlarıyla başlar. Fax numarası DEĞİL.
+- mobile: MOBİL telefon numarası. Genelde 05XX (0530, 0532, 0533, 0535, 0536, 0537, 0538, 0539, 0542, 0543, 0544, 0545, 0546, 0549, 0552, 0553, 0554, 0555, 0559) ile başlar.
+- Kartta 3 veya daha fazla numara varsa, SADECE sabit hat ve mobil numarayı al. Fax numarasını ALMA.
+- Kartta sadece 1 numara varsa:
+  * 05XX ile başlıyorsa → mobile alanına yaz, phone boş kalsın
+  * Şehir kodu ile başlıyorsa → phone alanına yaz, mobile boş kalsın
+- Kartta 2 numara varsa, birini phone diğerini mobile'a yaz (türüne göre).
 
 Not: Eğer bir alan kartta yoksa boş string ("") değerini ver.`;
 
